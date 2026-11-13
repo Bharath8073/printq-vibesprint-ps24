@@ -1,0 +1,1323 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PrintQ — Campus Print Queue & Token Simulator (PS-24)</title>
+  <script src="https://cdn.tailwindcss.com/3.4.17"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg-paper: #efece6;
+      --ink: #141414;
+      --accent-orange: #ff8a3d;
+      --accent-coral: #ff5a5f;
+    }
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      background-color: var(--bg-paper);
+      color: var(--ink);
+    }
+    .font-mono-code {
+      font-family: 'IBM Plex Mono', monospace;
+    }
+    .card-frame {
+      position: relative;
+      border: 1px solid rgba(20, 20, 20, 0.2);
+      background: rgba(255, 255, 255, 0.82);
+      backdrop-filter: blur(8px);
+    }
+    .urgent-pulse {
+      animation: pulseBorder 2s infinite;
+    }
+    @keyframes pulseBorder {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(255, 90, 95, 0.45); }
+      50% { box-shadow: 0 0 0 6px rgba(255, 90, 95, 0); }
+    }
+  </style>
+</head>
+<body class="min-h-screen flex flex-col selection:bg-[#ff8a3d]/30">
+
+  <!-- Top Navigation Header -->
+  <header class="sticky top-0 z-30 bg-[#efece6]/95 border-b border-[#141414]/15 backdrop-blur-md">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 py-3 flex flex-wrap items-center justify-between gap-3">
+      <div class="flex items-center gap-3">
+        <div class="w-9 h-9 rounded bg-[#141414] text-[#efece6] flex items-center justify-center font-mono-code font-bold text-base shadow-sm">
+          PQ
+        </div>
+        <div>
+          <div class="flex items-center gap-2">
+            <span class="font-bold text-lg tracking-tight text-[#141414]">PrintQ</span>
+            <span class="font-mono-code text-[11px] font-bold px-2 py-0.5 bg-[#ff8a3d] text-[#141414] rounded-sm uppercase">PS-24 · MVP + Twist</span>
+          </div>
+          <p class="text-xs text-[#141414]/65 font-mono-code">Campus Print-Shop Token &amp; Rush-Hour Queue Simulator</p>
+        </div>
+      </div>
+
+      <!-- View Mode Switcher & Twist Controls -->
+      <div class="flex flex-wrap items-center gap-2">
+        <div class="inline-flex rounded-sm border border-[#141414]/20 bg-white/80 p-0.5 text-xs font-mono-code" role="tablist">
+          <button type="button" id="tab-split" onclick="setViewMode('split')" class="px-2.5 py-1.5 font-semibold rounded-sm bg-[#141414] text-[#efece6] transition-colors">
+            Split View (Judge)
+          </button>
+          <button type="button" id="tab-student" onclick="setViewMode('student')" class="px-2.5 py-1.5 font-semibold rounded-sm text-[#141414]/75 hover:text-[#141414] transition-colors">
+            Student Kiosk
+          </button>
+          <button type="button" id="tab-shop" onclick="setViewMode('shop')" class="px-2.5 py-1.5 font-semibold rounded-sm text-[#141414]/75 hover:text-[#141414] transition-colors">
+            Shop Queue (<span id="nav-queue-count">3</span>)
+          </button>
+        </div>
+
+        <!-- Rush Hour Twist Toggle -->
+        <button type="button" id="rush-toggle-btn" onclick="toggleRushHour()" class="inline-flex items-center gap-2 px-3 py-1.5 rounded-sm border border-[#141414]/25 bg-white text-xs font-mono-code font-bold hover:border-[#141414] transition-all">
+          <span id="rush-dot" class="w-2 h-2 rounded-full bg-emerald-600"></span>
+          <span id="rush-label">NORMAL HOURS (1.0x)</span>
+        </button>
+
+        <!-- Reset Queue Button -->
+        <button type="button" id="reset-queue-btn" onclick="openResetModal()" class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-sm border border-[#141414]/25 bg-white/70 hover:bg-[#141414] hover:text-[#efece6] text-xs font-mono-code font-semibold transition-colors">
+          <span>↺ Reset Queue</span>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- Live Toast / Status Notification Banner -->
+  <div id="toast-container" class="fixed bottom-4 right-4 z-50 max-w-md hidden">
+    <div class="bg-[#141414] text-[#efece6] border-l-4 border-[#ff8a3d] px-4 py-3 rounded shadow-xl flex items-start justify-between gap-3">
+      <div>
+        <p id="toast-title" class="font-mono-code text-xs font-bold uppercase text-[#ff8a3d]">Action Confirmed</p>
+        <p id="toast-message" class="text-xs mt-0.5 leading-relaxed"></p>
+      </div>
+      <button type="button" onclick="hideToast()" class="text-[#efece6]/60 hover:text-white text-sm font-mono-code">✕</button>
+    </div>
+  </div>
+
+  <!-- Main Content Container -->
+  <main class="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 py-6 space-y-6">
+
+    <!-- Judge Verification Quick-Bar & Visible Wait-Time Assumptions -->
+    <section class="grid grid-cols-1 lg:grid-cols-12 gap-4">
+      <!-- Visible Wait-Time Formula & Assumptions Card (MVP #2 + Twist) -->
+      <div class="lg:col-span-7 card-frame p-4 sm:p-5 rounded-sm">
+        <div class="flex flex-wrap items-center justify-between gap-2 mb-2">
+          <div class="flex items-center gap-2">
+            <span class="w-2 h-2 rounded-full bg-[#ff8a3d]"></span>
+            <h2 class="font-mono-code text-xs font-bold uppercase tracking-wider text-[#141414]">
+              Visible Wait-Time Formula &amp; Shop Assumptions (MVP #2 + Twist)
+            </h2>
+          </div>
+          <span id="formula-mode-badge" class="font-mono-code text-[11px] font-bold px-2 py-0.5 rounded-sm bg-emerald-100 text-emerald-900">
+            Standard Load: 1.0x Speed
+          </span>
+        </div>
+        <p class="text-xs text-[#141414]/80 leading-relaxed mb-3">
+          Estimated wait time is dynamically computed from total pages, print colour mode, active jobs ahead in queue, and the <strong>Minute-40 Rush-Hour Twist</strong> multiplier:
+        </p>
+        <div class="grid grid-cols-2 sm:grid-cols-4 gap-2.5 font-mono-code text-xs">
+          <div class="bg-[#efece6]/80 border border-[#141414]/15 p-2.5 rounded-sm">
+            <span class="text-[10px] text-[#141414]/60 block uppercase">B&amp;W Speed &amp; Rate</span>
+            <strong class="text-[#141414] text-sm">15 pg/min</strong>
+            <span class="text-[11px] text-[#141414]/70 block">4s/pg · ₹1.50/pg</span>
+          </div>
+          <div class="bg-[#efece6]/80 border border-[#141414]/15 p-2.5 rounded-sm">
+            <span class="text-[10px] text-[#141414]/60 block uppercase">Colour Speed &amp; Rate</span>
+            <strong class="text-[#141414] text-sm">5 pg/min</strong>
+            <span class="text-[11px] text-[#141414]/70 block">12s/pg · ₹5.00/pg</span>
+          </div>
+          <div class="bg-[#efece6]/80 border border-[#141414]/15 p-2.5 rounded-sm">
+            <span class="text-[10px] text-[#141414]/60 block uppercase">Job Setup Buffer</span>
+            <strong class="text-[#141414] text-sm">+0.5 min</strong>
+            <span class="text-[11px] text-[#141414]/70 block">Per queued job</span>
+          </div>
+          <div id="rush-formula-box" class="bg-[#efece6]/80 border border-[#141414]/15 p-2.5 rounded-sm transition-colors">
+            <span class="text-[10px] text-[#141414]/60 block uppercase">Rush-Hour Twist</span>
+            <strong id="rush-multiplier-readout" class="text-[#141414] text-sm">Off (1.0x)</strong>
+            <span id="rush-buffer-readout" class="text-[11px] text-[#141414]/70 block">Toggle for 1.5x + 1m</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Judge 3-Step Verification Path Tracker -->
+      <div class="lg:col-span-5 card-frame p-4 sm:p-5 rounded-sm">
+        <div class="flex items-center justify-between mb-2">
+          <div class="flex items-center gap-2">
+            <span class="w-2 h-2 rounded-full bg-[#ff5a5f]"></span>
+            <h2 class="font-mono-code text-xs font-bold uppercase tracking-wider text-[#141414]">
+              Judge Demo &amp; Verification Path
+            </h2>
+          </div>
+          <span class="font-mono-code text-[11px] text-[#141414]/60">Interactive Check</span>
+        </div>
+        <div class="space-y-2 text-xs">
+          <div id="judge-step-1" class="flex items-center justify-between p-2 rounded-sm bg-[#efece6]/70 border border-[#141414]/15">
+            <div class="flex items-center gap-2">
+              <span id="judge-badge-1" class="font-mono-code font-bold text-[11px] px-1.5 py-0.5 bg-[#141414] text-[#efece6] rounded-sm">STEP 01</span>
+              <span>Submit a print job &amp; show token + wait estimate</span>
+            </div>
+            <span id="judge-status-1" class="font-mono-code text-[11px] font-bold text-[#141414]/50">Pending</span>
+          </div>
+          <div id="judge-step-2" class="flex items-center justify-between p-2 rounded-sm bg-[#efece6]/70 border border-[#141414]/15">
+            <div class="flex items-center gap-2">
+              <span id="judge-badge-2" class="font-mono-code font-bold text-[11px] px-1.5 py-0.5 bg-[#141414] text-[#efece6] rounded-sm">STEP 02</span>
+              <span>Change job status in shop queue (Pending → Printing → Ready)</span>
+            </div>
+            <span id="judge-status-2" class="font-mono-code text-[11px] font-bold text-[#141414]/50">Pending</span>
+          </div>
+          <div id="judge-step-3" class="flex items-center justify-between p-2 rounded-sm bg-[#efece6]/70 border border-[#141414]/15">
+            <div class="flex items-center gap-2">
+              <span id="judge-badge-3" class="font-mono-code font-bold text-[11px] px-1.5 py-0.5 bg-[#141414] text-[#efece6] rounded-sm">STEP 03</span>
+              <span>Mark 1 job urgent &amp; confirm delay warning modal</span>
+            </div>
+            <span id="judge-status-3" class="font-mono-code text-[11px] font-bold text-[#141414]/50">Pending</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Main Split Workspace: Left = Student Submission & Token View | Right = Shop Queue Console -->
+    <div id="workspace-grid" class="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+
+      <!-- LEFT COLUMN: STUDENT PRINT JOB SUBMISSION & LIVE TOKEN CARD -->
+      <section id="student-panel" class="lg:col-span-5 space-y-6">
+        <!-- Submit Print Job Card -->
+        <div class="card-frame p-5 sm:p-6 rounded-sm">
+          <div class="flex items-center justify-between border-b border-[#141414]/10 pb-3 mb-4">
+            <div>
+              <span class="font-mono-code text-[11px] font-bold uppercase text-[#ff8a3d] block">Student Kiosk</span>
+              <h2 class="text-lg font-bold text-[#141414]">Submit a Print Job</h2>
+            </div>
+            <div class="flex gap-1.5">
+              <button type="button" onclick="fillPresetJob('lab')" class="px-2 py-1 text-[11px] font-mono-code bg-[#efece6] hover:bg-[#141414] hover:text-[#efece6] border border-[#141414]/20 rounded-sm transition-colors">
+                + Lab Record
+              </button>
+              <button type="button" onclick="fillPresetJob('poster')" class="px-2 py-1 text-[11px] font-mono-code bg-[#efece6] hover:bg-[#141414] hover:text-[#efece6] border border-[#141414]/20 rounded-sm transition-colors">
+                + Colour Slides
+              </button>
+            </div>
+          </div>
+
+          <form id="print-job-form" onsubmit="handleJobSubmit(event)" class="space-y-4" novalidate>
+            <!-- Student Fictional Tag -->
+            <div>
+              <label for="student-name" class="block font-mono-code text-xs font-semibold uppercase text-[#141414]/80 mb-1">
+                Student Name / Roll Tag (Fictional)
+              </label>
+              <input
+                type="text"
+                id="student-name"
+                value="Aarav Rao (CSE-4B)"
+                placeholder="e.g. Aarav Rao (CSE-4B)"
+                oninput="updateLivePreview()"
+                class="w-full px-3 py-2 rounded-sm border border-[#141414]/25 bg-white text-sm focus:outline-none focus:border-[#141414]"
+              />
+            </div>
+
+            <!-- Document Name -->
+            <div>
+              <label for="doc-name" class="block font-mono-code text-xs font-semibold uppercase text-[#141414]/80 mb-1">
+                Document Name <span class="text-[#ff5a5f]">*</span>
+              </label>
+              <input
+                type="text"
+                id="doc-name"
+                placeholder="e.g. OS_Kernel_Assignment_V2.pdf"
+                oninput="updateLivePreview()"
+                class="w-full px-3 py-2 rounded-sm border border-[#141414]/25 bg-white text-sm focus:outline-none focus:border-[#141414]"
+              />
+              <p id="form-error" class="hidden text-xs font-mono-code text-[#ff5a5f] mt-1">
+                Please enter a valid document name (minimum 2 characters) and positive page/copy counts.
+              </p>
+            </div>
+
+            <!-- Page Count & Copy Count Row -->
+            <div class="grid grid-cols-2 gap-3">
+              <div>
+                <label for="page-count" class="block font-mono-code text-xs font-semibold uppercase text-[#141414]/80 mb-1">
+                  Pages per Copy <span class="text-[#ff5a5f]">*</span>
+                </label>
+                <div class="flex items-center">
+                  <button type="button" onclick="adjustCount('page-count', -5)" class="px-2.5 py-2 bg-[#efece6] border border-r-0 border-[#141414]/25 font-mono-code text-xs font-bold hover:bg-[#141414] hover:text-white">-5</button>
+                  <input
+                    type="number"
+                    id="page-count"
+                    min="1"
+                    max="500"
+                    value="12"
+                    oninput="updateLivePreview()"
+                    class="w-full px-2 py-2 border border-[#141414]/25 bg-white text-center font-mono-code text-sm font-bold focus:outline-none"
+                  />
+                  <button type="button" onclick="adjustCount('page-count', 5)" class="px-2.5 py-2 bg-[#efece6] border border-l-0 border-[#141414]/25 font-mono-code text-xs font-bold hover:bg-[#141414] hover:text-white">+5</button>
+                </div>
+              </div>
+
+              <div>
+                <label for="copy-count" class="block font-mono-code text-xs font-semibold uppercase text-[#141414]/80 mb-1">
+                  Copy Count <span class="text-[#ff5a5f]">*</span>
+                </label>
+                <div class="flex items-center">
+                  <button type="button" onclick="adjustCount('copy-count', -1)" class="px-2.5 py-2 bg-[#efece6] border border-r-0 border-[#141414]/25 font-mono-code text-xs font-bold hover:bg-[#141414] hover:text-white">-1</button>
+                  <input
+                    type="number"
+                    id="copy-count"
+                    min="1"
+                    max="50"
+                    value="2"
+                    oninput="updateLivePreview()"
+                    class="w-full px-2 py-2 border border-[#141414]/25 bg-white text-center font-mono-code text-sm font-bold focus:outline-none"
+                  />
+                  <button type="button" onclick="adjustCount('copy-count', 1)" class="px-2.5 py-2 bg-[#efece6] border border-l-0 border-[#141414]/25 font-mono-code text-xs font-bold hover:bg-[#141414] hover:text-white">+1</button>
+                </div>
+              </div>
+            </div>
+
+            <!-- Colour Preference Selector -->
+            <div>
+              <span class="block font-mono-code text-xs font-semibold uppercase text-[#141414]/80 mb-1.5">
+                Colour Preference <span class="text-[#ff5a5f]">*</span>
+              </span>
+              <div class="grid grid-cols-2 gap-3">
+                <button
+                  type="button"
+                  id="color-bw-btn"
+                  onclick="selectColorMode('BW')"
+                  class="p-3 rounded-sm border-2 border-[#141414] bg-[#141414] text-[#efece6] text-left transition-all"
+                >
+                  <div class="flex items-center justify-between font-mono-code text-xs font-bold">
+                    <span>⬛ BLACK &amp; WHITE</span>
+                    <span>₹1.50/pg</span>
+                  </div>
+                  <p class="text-[11px] opacity-80 mt-1">Fast laser · 15 pages/min</p>
+                </button>
+
+                <button
+                  type="button"
+                  id="color-col-btn"
+                  onclick="selectColorMode('COLOUR')"
+                  class="p-3 rounded-sm border border-[#141414]/25 bg-white text-[#141414] text-left hover:border-[#141414] transition-all"
+                >
+                  <div class="flex items-center justify-between font-mono-code text-xs font-bold">
+                    <span>🌈 FULL COLOUR</span>
+                    <span>₹5.00/pg</span>
+                  </div>
+                  <p class="text-[11px] opacity-75 mt-1">Inkjet HD · 5 pages/min</p>
+                </button>
+              </div>
+            </div>
+
+            <!-- Live Pre-Submission Estimate Box -->
+            <div class="bg-[#efece6] border border-[#141414]/20 p-3.5 rounded-sm space-y-1.5">
+              <div class="flex items-center justify-between text-xs font-mono-code">
+                <span class="text-[#141414]/70">TOTAL SHEETS TO PRINT:</span>
+                <strong id="preview-sheets" class="text-[#141414]">24 pages (12p × 2 copies)</strong>
+              </div>
+              <div class="flex items-center justify-between text-xs font-mono-code">
+                <span class="text-[#141414]/70">THIS JOB PRINT TIME:</span>
+                <strong id="preview-job-time" class="text-[#141414]">2.1 mins</strong>
+              </div>
+              <div class="flex items-center justify-between text-xs font-mono-code">
+                <span class="text-[#141414]/70">ESTIMATED WAIT (WITH QUEUE):</span>
+                <strong id="preview-total-wait" class="text-[#ff5a5f] text-sm">~6.4 mins</strong>
+              </div>
+              <div class="flex items-center justify-between text-xs font-mono-code border-t border-[#141414]/10 pt-1.5">
+                <span class="text-[#141414]/70">ESTIMATED COST:</span>
+                <strong id="preview-cost" class="text-[#141414]">₹36.00</strong>
+              </div>
+            </div>
+
+            <button
+              type="submit"
+              class="w-full py-3 px-4 rounded-sm bg-[#141414] hover:bg-[#ff5a5f] text-[#efece6] hover:text-white font-mono-code text-xs sm:text-sm font-bold uppercase tracking-wider transition-colors shadow-sm flex items-center justify-center gap-2 cursor-pointer"
+            >
+              <span>Generate Print Token &amp; Join Queue</span>
+              <span>→</span>
+            </button>
+          </form>
+        </div>
+
+        <!-- Issued Student Token Receipt Card -->
+        <div id="token-receipt-card" class="card-frame p-5 sm:p-6 rounded-sm border-t-4 border-t-[#ff8a3d]">
+          <div class="flex items-center justify-between mb-3">
+            <span class="font-mono-code text-[11px] font-bold uppercase tracking-wider text-[#141414]/65">
+              Active Student Token Pass
+            </span>
+            <span id="receipt-status-pill" class="font-mono-code text-xs font-bold px-2.5 py-0.5 rounded-sm bg-amber-100 text-amber-900">
+              PENDING IN QUEUE
+            </span>
+          </div>
+
+          <div class="bg-[#141414] text-[#efece6] p-4 rounded-sm flex items-center justify-between mb-4">
+            <div>
+              <span class="font-mono-code text-[10px] uppercase text-[#efece6]/60 block">Token Number</span>
+              <div class="flex items-center gap-2">
+                <span id="receipt-token-id" class="font-mono-code text-3xl font-bold tracking-tight text-[#ff8a3d]">PQ-103</span>
+                <span id="receipt-urgent-badge" class="hidden font-mono-code text-[10px] font-bold px-2 py-0.5 bg-[#ff5a5f] text-white rounded-sm uppercase">⚡ URGENT</span>
+              </div>
+            </div>
+            <div class="text-right">
+              <span class="font-mono-code text-[10px] uppercase text-[#efece6]/60 block">Est. Wait / Pickup</span>
+              <span id="receipt-wait-time" class="font-mono-code text-xl font-bold text-white">~5.3 mins</span>
+              <span id="receipt-pickup-clock" class="font-mono-code text-[11px] text-[#efece6]/75 block">ETA 03:23 PM</span>
+            </div>
+          </div>
+
+          <div class="grid grid-cols-2 gap-2.5 text-xs font-mono-code mb-4">
+            <div class="bg-[#efece6]/70 p-2.5 rounded-sm">
+              <span class="text-[10px] text-[#141414]/60 block">DOCUMENT</span>
+              <strong id="receipt-doc-name" class="text-[#141414] truncate block">Compiler_Design_Notes.pdf</strong>
+            </div>
+            <div class="bg-[#efece6]/70 p-2.5 rounded-sm">
+              <span class="text-[10px] text-[#141414]/60 block">STUDENT</span>
+              <strong id="receipt-student-name" class="text-[#141414] truncate block">Diya Nair (ISE-3A)</strong>
+            </div>
+            <div class="bg-[#efece6]/70 p-2.5 rounded-sm">
+              <span class="text-[10px] text-[#141414]/60 block">SPECIFICATION</span>
+              <strong id="receipt-specs" class="text-[#141414] block">18p × 1 copy · B&amp;W</strong>
+            </div>
+            <div class="bg-[#efece6]/70 p-2.5 rounded-sm">
+              <span class="text-[10px] text-[#141414]/60 block">QUEUE POSITION &amp; FEE</span>
+              <strong id="receipt-pos-cost" class="text-[#141414] block">#3 in line · ₹27.00</strong>
+            </div>
+          </div>
+
+          <!-- Token Selector Pills so students/judges can inspect any token -->
+          <div>
+            <span class="font-mono-code text-[10px] uppercase text-[#141414]/60 block mb-1.5">
+              Switch Inspected Student Token:
+            </span>
+            <div id="student-token-selector" class="flex flex-wrap gap-1.5"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- RIGHT COLUMN: SHOP OPERATOR QUEUE CONSOLE -->
+      <section id="shop-panel" class="lg:col-span-7 space-y-5">
+        <div class="card-frame p-5 sm:p-6 rounded-sm">
+          <!-- Shop Header & Metrics -->
+          <div class="flex flex-wrap items-center justify-between gap-3 border-b border-[#141414]/10 pb-4 mb-4">
+            <div>
+              <div class="flex items-center gap-2">
+                <span class="font-mono-code text-[11px] font-bold uppercase text-[#ff5a5f]">Shop Operator Console</span>
+                <span id="urgent-active-indicator" class="hidden font-mono-code text-[10px] font-bold px-2 py-0.5 bg-[#ff5a5f]/15 text-[#ff5a5f] border border-[#ff5a5f]/30 rounded-sm">
+                  1 Urgent Override Active
+                </span>
+              </div>
+              <h2 class="text-lg font-bold text-[#141414]">Live Print Shop Queue</h2>
+            </div>
+
+            <!-- Queue Summary Counters -->
+            <div class="flex flex-wrap items-center gap-2 font-mono-code text-xs">
+              <div class="px-2.5 py-1.5 bg-[#efece6] border border-[#141414]/15 rounded-sm">
+                <span class="text-[#141414]/60">Pending:</span> <strong id="stat-pending">2</strong>
+              </div>
+              <div class="px-2.5 py-1.5 bg-blue-50 border border-blue-200 text-blue-900 rounded-sm">
+                <span>Printing:</span> <strong id="stat-printing">1</strong>
+              </div>
+              <div class="px-2.5 py-1.5 bg-emerald-50 border border-emerald-200 text-emerald-900 rounded-sm">
+                <span>Ready:</span> <strong id="stat-ready">0</strong>
+              </div>
+              <div class="px-2.5 py-1.5 bg-[#141414] text-[#efece6] rounded-sm">
+                <span>Backlog:</span> <strong id="stat-total-wait">5.3m</strong>
+              </div>
+            </div>
+          </div>
+
+          <!-- Filter Bar & Search -->
+          <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
+            <div class="inline-flex flex-wrap gap-1 font-mono-code text-xs">
+              <button type="button" id="filter-ALL" onclick="setQueueFilter('ALL')" class="px-2.5 py-1 rounded-sm bg-[#141414] text-[#efece6] font-semibold">
+                All Jobs
+              </button>
+              <button type="button" id="filter-Pending" onclick="setQueueFilter('Pending')" class="px-2.5 py-1 rounded-sm bg-[#efece6] text-[#141414]/80 hover:bg-[#141414]/10 font-semibold">
+                Pending
+              </button>
+              <button type="button" id="filter-Printing" onclick="setQueueFilter('Printing')" class="px-2.5 py-1 rounded-sm bg-[#efece6] text-[#141414]/80 hover:bg-[#141414]/10 font-semibold">
+                Printing
+              </button>
+              <button type="button" id="filter-Ready" onclick="setQueueFilter('Ready')" class="px-2.5 py-1 rounded-sm bg-[#efece6] text-[#141414]/80 hover:bg-[#141414]/10 font-semibold">
+                Ready for Pickup
+              </button>
+            </div>
+
+            <div class="relative flex-1 min-w-[180px] max-w-xs">
+              <input
+                type="text"
+                id="queue-search"
+                placeholder="Search token or doc name..."
+                oninput="renderAll()"
+                class="w-full px-3 py-1.5 rounded-sm border border-[#141414]/20 bg-white font-mono-code text-xs focus:outline-none focus:border-[#141414]"
+              />
+            </div>
+          </div>
+
+          <!-- Queue List Container -->
+          <div id="shop-queue-list" class="space-y-3"></div>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <!-- URGENT OVERRIDE CONFIRMATION MODAL (Minute 40 Twist + Judge Step 03) -->
+  <div id="urgent-modal" class="fixed inset-0 z-50 bg-[#141414]/60 backdrop-blur-xs hidden items-center justify-center p-4">
+    <div class="bg-[#efece6] border-2 border-[#141414] max-w-lg w-full p-6 rounded-sm shadow-2xl">
+      <div class="flex items-center justify-between border-b border-[#141414]/15 pb-3 mb-4">
+        <div class="flex items-center gap-2">
+          <span class="px-2 py-0.5 bg-[#ff5a5f] text-white font-mono-code text-xs font-bold rounded-sm">⚡ URGENT OVERRIDE</span>
+          <h3 class="font-mono-code text-sm font-bold uppercase text-[#141414]">Confirm Queue Delay Impact</h3>
+        </div>
+        <button type="button" onclick="closeUrgentModal()" class="text-[#141414]/60 hover:text-[#141414] font-mono-code text-sm">✕</button>
+      </div>
+
+      <p class="text-sm text-[#141414]/90 leading-relaxed mb-3">
+        You are about to mark <strong id="modal-urgent-target" class="font-mono-code text-[#ff5a5f]">PQ-103</strong> as the shop's <strong>single Urgent Priority job</strong> and move it to the front of the pending queue.
+      </p>
+
+      <div class="bg-white border border-[#ff5a5f]/40 p-3.5 rounded-sm mb-4 space-y-2">
+        <p class="font-mono-code text-xs font-bold text-[#ff5a5f] uppercase">
+          ⚠️ Mandatory Delay Notice (Minute-40 Twist Rule):
+        </p>
+        <p id="modal-delay-summary" class="text-xs text-[#141414]/85 leading-relaxed font-mono-code"></p>
+        <ul id="modal-affected-list" class="text-xs font-mono-code text-[#141414]/75 space-y-1 pl-4 list-disc"></ul>
+      </div>
+
+      <div class="flex items-center justify-end gap-3">
+        <button
+          type="button"
+          onclick="closeUrgentModal()"
+          class="px-4 py-2 rounded-sm border border-[#141414]/25 bg-white hover:bg-[#141414]/5 font-mono-code text-xs font-bold uppercase"
+        >
+          Cancel
+        </button>
+        <button
+          type="button"
+          id="confirm-urgent-btn"
+          onclick="confirmUrgentOverride()"
+          class="px-4 py-2 rounded-sm bg-[#ff5a5f] hover:bg-[#141414] text-white font-mono-code text-xs font-bold uppercase tracking-wider transition-colors cursor-pointer"
+        >
+          Confirm Urgent &amp; Delay Other Jobs
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- QUEUE RESET CONFIRMATION MODAL -->
+  <div id="reset-modal" class="fixed inset-0 z-50 bg-[#141414]/60 backdrop-blur-xs hidden items-center justify-center p-4">
+    <div class="bg-[#efece6] border-2 border-[#141414] max-w-md w-full p-6 rounded-sm shadow-2xl">
+      <h3 class="font-mono-code text-sm font-bold uppercase text-[#141414] mb-2">Reset PrintQ Demo State?</h3>
+      <p class="text-xs text-[#141414]/80 leading-relaxed mb-4">
+        This will restore the default 3 sample campus print jobs (<code class="font-mono-code">PQ-101</code> to <code class="font-mono-code">PQ-103</code>), reset token numbering, and set Rush-Hour mode back to normal.
+      </p>
+      <div class="flex items-center justify-end gap-3">
+        <button type="button" onclick="closeResetModal()" class="px-4 py-2 rounded-sm border border-[#141414]/25 bg-white font-mono-code text-xs font-bold uppercase">
+          Cancel
+        </button>
+        <button type="button" onclick="confirmResetQueue()" class="px-4 py-2 rounded-sm bg-[#141414] hover:bg-[#ff5a5f] text-white font-mono-code text-xs font-bold uppercase">
+          Reset Queue Now
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Footer -->
+  <footer class="border-t border-[#141414]/15 bg-[#efece6] py-4 px-4 sm:px-6 mt-8">
+    <div class="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-2 text-xs font-mono-code text-[#141414]/65">
+      <span>VIBESPRINT 1.0 · OWASP NIE · PROBLEM CARD 24 (PrintQ)</span>
+      <span>100% Browser-First Prototype · No API Keys or .env Required · Fictional Campus Data</span>
+    </div>
+  </footer>
+
+  <script>
+    // --- VISIBLE WAIT-TIME & PRICING ASSUMPTIONS ---
+    const ASSUMPTIONS = {
+      BW_MIN_PER_PAGE: 1 / 15,      // 15 pages per minute (4 sec/page)
+      COLOUR_MIN_PER_PAGE: 1 / 5,   // 5 pages per minute (12 sec/page)
+      SETUP_MIN_PER_JOB: 0.5,       // 30 seconds setup/handling per job
+      RUSH_MULTIPLIER: 1.5,         // 1.5x duration during Rush Hour
+      RUSH_BUFFER_MIN: 1.0,         // +1.0 min batching buffer in Rush Hour
+      BW_COST_PER_PAGE: 1.5,        // ₹1.50 per page B&W
+      COLOUR_COST_PER_PAGE: 5.0     // ₹5.00 per page Colour
+    };
+
+    const STORAGE_KEY = 'printq_ps24_state_v1';
+
+    function getInitialSampleJobs() {
+      return [
+        {
+          id: 'job-101',
+          token: 'PQ-101',
+          studentName: 'Rohan Kulkarni (CSE-2A)',
+          docName: 'ADA_Graph_Algorithms_Lab.pdf',
+          pages: 15,
+          copies: 2,
+          colorMode: 'BW',
+          status: 'Printing',
+          urgent: false,
+          delayedByUrgentMin: 0,
+          createdAt: Date.now() - 420000
+        },
+        {
+          id: 'job-102',
+          token: 'PQ-102',
+          studentName: 'Meera Hegde (AIML-3B)',
+          docName: 'IEEE_MiniProject_Poster_Draft.pdf',
+          pages: 6,
+          copies: 1,
+          colorMode: 'COLOUR',
+          status: 'Pending',
+          urgent: false,
+          delayedByUrgentMin: 0,
+          createdAt: Date.now() - 240000
+        },
+        {
+          id: 'job-103',
+          token: 'PQ-103',
+          studentName: 'Diya Nair (ISE-3A)',
+          docName: 'Compiler_Design_Notes.pdf',
+          pages: 18,
+          copies: 1,
+          colorMode: 'BW',
+          status: 'Pending',
+          urgent: false,
+          delayedByUrgentMin: 0,
+          createdAt: Date.now() - 120000
+        }
+      ];
+    }
+
+    let state = {
+      jobs: getInitialSampleJobs(),
+      nextTokenNum: 104,
+      selectedColorMode: 'BW',
+      rushHour: false,
+      selectedToken: 'PQ-103',
+      queueFilter: 'ALL',
+      viewMode: 'split',
+      pendingUrgentJobId: null,
+      judgeChecks: {
+        step1: false,
+        step2: false,
+        step3: false
+      }
+    };
+
+    // Load persisted state safely
+    function loadState() {
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (parsed && Array.isArray(parsed.jobs) && parsed.jobs.length > 0) {
+            state = Object.assign({}, state, parsed);
+          }
+        }
+      } catch (e) {
+        // Ignore storage errors in sandboxed iframes
+      }
+    }
+
+    function saveState() {
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+      } catch (e) {
+        // Ignore storage errors
+      }
+    }
+
+    // Calculate single job print duration in minutes
+    function calcJobDurationMin(pages, copies, colorMode, isRushHour) {
+      const totalSheets = Math.max(1, Number(pages) || 1) * Math.max(1, Number(copies) || 1);
+      const ratePerPage = colorMode === 'COLOUR' ? ASSUMPTIONS.COLOUR_MIN_PER_PAGE : ASSUMPTIONS.BW_MIN_PER_PAGE;
+      const baseMin = (totalSheets * ratePerPage) + ASSUMPTIONS.SETUP_MIN_PER_JOB;
+      if (isRushHour) {
+        return +(baseMin * ASSUMPTIONS.RUSH_MULTIPLIER + ASSUMPTIONS.RUSH_BUFFER_MIN).toFixed(1);
+      }
+      return +baseMin.toFixed(1);
+    }
+
+    function calcJobCost(pages, copies, colorMode) {
+      const totalSheets = Math.max(1, Number(pages) || 1) * Math.max(1, Number(copies) || 1);
+      const rate = colorMode === 'COLOUR' ? ASSUMPTIONS.COLOUR_COST_PER_PAGE : ASSUMPTIONS.BW_COST_PER_PAGE;
+      return +(totalSheets * rate).toFixed(2);
+    }
+
+    // Recompute queue positions, cumulative wait times, and pickup ETAs
+    function getEnrichedQueue() {
+      let cumulativeMin = 0;
+      let activePosition = 0;
+      return state.jobs.map((job) => {
+        const durationMin = calcJobDurationMin(job.pages, job.copies, job.colorMode, state.rushHour);
+        const cost = calcJobCost(job.pages, job.copies, job.colorMode);
+        const totalSheets = job.pages * job.copies;
+
+        if (job.status === 'Ready') {
+          return Object.assign({}, job, {
+            durationMin,
+            cost,
+            totalSheets,
+            queuePos: 0,
+            estimatedWaitMin: 0,
+            etaClock: 'Ready Now'
+          });
+        }
+
+        activePosition += 1;
+        // If Printing, assume 60% of current job remains
+        const effectiveDuration = job.status === 'Printing' ? +(durationMin * 0.6).toFixed(1) : durationMin;
+        cumulativeMin = +(cumulativeMin + effectiveDuration).toFixed(1);
+
+        const etaDate = new Date(Date.now() + cumulativeMin * 60000);
+        const etaClock = etaDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+        return Object.assign({}, job, {
+          durationMin,
+          cost,
+          totalSheets,
+          queuePos: activePosition,
+          estimatedWaitMin: cumulativeMin,
+          etaClock
+        });
+      });
+    }
+
+    // Live form preview calculation
+    function updateLivePreview() {
+      const pagesInput = document.getElementById('page-count');
+      const copiesInput = document.getElementById('copy-count');
+      const pages = Math.max(1, Math.min(500, parseInt(pagesInput.value, 10) || 1));
+      const copies = Math.max(1, Math.min(50, parseInt(copiesInput.value, 10) || 1));
+      const totalSheets = pages * copies;
+
+      const jobDuration = calcJobDurationMin(pages, copies, state.selectedColorMode, state.rushHour);
+      const enriched = getEnrichedQueue();
+      const activeBacklog = enriched.reduce((acc, j) => (j.status !== 'Ready' ? Math.max(acc, j.estimatedWaitMin) : acc), 0);
+      const totalWait = +(activeBacklog + jobDuration).toFixed(1);
+      const cost = calcJobCost(pages, copies, state.selectedColorMode);
+
+      document.getElementById('preview-sheets').textContent = `${totalSheets} pages (${pages}p × ${copies} ${copies === 1 ? 'copy' : 'copies'})`;
+      document.getElementById('preview-job-time').textContent = `${jobDuration.toFixed(1)} mins (${state.selectedColorMode === 'COLOUR' ? 'Colour' : 'B&W'})`;
+      document.getElementById('preview-total-wait').textContent = `~${totalWait.toFixed(1)} mins${state.rushHour ? ' (Rush Hour)' : ''}`;
+      document.getElementById('preview-cost').textContent = `₹${cost.toFixed(2)}`;
+    }
+
+    function adjustCount(inputId, delta) {
+      const el = document.getElementById(inputId);
+      const min = parseInt(el.min, 10) || 1;
+      const max = parseInt(el.max, 10) || 500;
+      const current = parseInt(el.value, 10) || min;
+      el.value = Math.max(min, Math.min(max, current + delta));
+      updateLivePreview();
+    }
+
+    function selectColorMode(mode) {
+      state.selectedColorMode = mode;
+      const bwBtn = document.getElementById('color-bw-btn');
+      const colBtn = document.getElementById('color-col-btn');
+      if (mode === 'BW') {
+        bwBtn.className = 'p-3 rounded-sm border-2 border-[#141414] bg-[#141414] text-[#efece6] text-left transition-all';
+        colBtn.className = 'p-3 rounded-sm border border-[#141414]/25 bg-white text-[#141414] text-left hover:border-[#141414] transition-all';
+      } else {
+        colBtn.className = 'p-3 rounded-sm border-2 border-[#141414] bg-[#141414] text-[#efece6] text-left transition-all';
+        bwBtn.className = 'p-3 rounded-sm border border-[#141414]/25 bg-white text-[#141414] text-left hover:border-[#141414] transition-all';
+      }
+      updateLivePreview();
+    }
+
+    function fillPresetJob(type) {
+      const docEl = document.getElementById('doc-name');
+      const studentEl = document.getElementById('student-name');
+      const pagesEl = document.getElementById('page-count');
+      const copiesEl = document.getElementById('copy-count');
+      if (type === 'lab') {
+        studentEl.value = 'Karthik V (CSE-2B)';
+        docEl.value = 'DBMS_Normalization_Lab_Report.pdf';
+        pagesEl.value = 20;
+        copiesEl.value = 2;
+        selectColorMode('BW');
+      } else {
+        studentEl.value = 'Ananya S (AIML-4A)';
+        docEl.value = 'Capstone_Architecture_Deck.pdf';
+        pagesEl.value = 10;
+        copiesEl.value = 1;
+        selectColorMode('COLOUR');
+      }
+      document.getElementById('form-error').classList.add('hidden');
+      updateLivePreview();
+    }
+
+    // Submit New Print Job (MVP #1 & #2 + Judge Step 01)
+    function handleJobSubmit(event) {
+      event.preventDefault();
+      const studentInput = document.getElementById('student-name');
+      const docInput = document.getElementById('doc-name');
+      const pagesInput = document.getElementById('page-count');
+      const copiesInput = document.getElementById('copy-count');
+      const errorEl = document.getElementById('form-error');
+
+      let rawDoc = (docInput.value || '').trim();
+      const studentName = (studentInput.value || '').trim() || 'Campus Student (NIE)';
+      const pages = parseInt(pagesInput.value, 10);
+      const copies = parseInt(copiesInput.value, 10);
+
+      if (rawDoc.length < 2 || isNaN(pages) || pages < 1 || pages > 500 || isNaN(copies) || copies < 1 || copies > 50) {
+        errorEl.classList.remove('hidden');
+        return;
+      }
+      errorEl.classList.add('hidden');
+
+      if (!/\.[a-zA-Z0-9]{2,4}$/.test(rawDoc)) {
+        rawDoc += '.pdf';
+      }
+
+      const token = `PQ-${state.nextTokenNum}`;
+      state.nextTokenNum += 1;
+
+      const newJob = {
+        id: 'job-' + Date.now(),
+        token,
+        studentName,
+        docName: rawDoc,
+        pages,
+        copies,
+        colorMode: state.selectedColorMode,
+        status: 'Pending',
+        urgent: false,
+        delayedByUrgentMin: 0,
+        createdAt: Date.now()
+      };
+
+      state.jobs.push(newJob);
+      state.selectedToken = token;
+      state.judgeChecks.step1 = true;
+      docInput.value = '';
+
+      saveState();
+      renderAll();
+
+      const enrichedNew = getEnrichedQueue().find((j) => j.token === token);
+      showToast(
+        `Token ${token} Generated`,
+        `Submitted "${rawDoc}" (${pages}p × ${copies}). Est. wait: ~${enrichedNew ? enrichedNew.estimatedWaitMin : 0} mins (Pickup ETA ${enrichedNew ? enrichedNew.etaClock : 'soon'}).`
+      );
+    }
+
+    // Toggle Rush-Hour Mode (Minute-40 Twist)
+    function toggleRushHour() {
+      state.rushHour = !state.rushHour;
+      saveState();
+      renderAll();
+      showToast(
+        state.rushHour ? 'Rush-Hour Queue Twist Enabled' : 'Normal Shop Hours Restored',
+        state.rushHour
+          ? 'Wait times now scale by 1.5x + 1.0 min batching overhead per job based on page count and colour type.'
+          : 'Wait times returned to standard 1.0x baseline print speeds.'
+      );
+    }
+
+    // Change Job Status (Judge Step 02)
+    function changeJobStatus(jobId, newStatus) {
+      const idx = state.jobs.findIndex((j) => j.id === jobId);
+      if (idx === -1) return;
+      const oldStatus = state.jobs[idx].status;
+      state.jobs[idx].status = newStatus;
+      if (newStatus === 'Ready') {
+        state.jobs[idx].urgent = false;
+      }
+      state.judgeChecks.step2 = true;
+      saveState();
+      renderAll();
+      showToast(
+        `Status Updated: ${state.jobs[idx].token}`,
+        `Job "${state.jobs[idx].docName}" moved from ${oldStatus} → ${newStatus}. All queue wait estimates updated.`
+      );
+    }
+
+    // Reorder Pending Jobs in Shop Queue (MVP #3)
+    function moveJobOrder(jobId, direction) {
+      const idx = state.jobs.findIndex((j) => j.id === jobId);
+      if (idx === -1) return;
+      const targetIdx = idx + direction;
+      if (targetIdx < 0 || targetIdx >= state.jobs.length) return;
+
+      // Keep currently Printing jobs at top if moving up past them
+      const temp = state.jobs[idx];
+      state.jobs[idx] = state.jobs[targetIdx];
+      state.jobs[targetIdx] = temp;
+
+      saveState();
+      renderAll();
+      showToast(
+        `Queue Reordered (${temp.token})`,
+        `Moved ${temp.token} ${direction < 0 ? 'up' : 'down'} in the shop queue.`
+      );
+    }
+
+    // Open Urgent Confirmation Modal (Minute 40 Twist & Judge Step 03)
+    function openUrgentModal(jobId) {
+      const job = state.jobs.find((j) => j.id === jobId);
+      if (!job) return;
+
+      state.pendingUrgentJobId = jobId;
+      const urgentDuration = calcJobDurationMin(job.pages, job.copies, job.colorMode, state.rushHour);
+
+      // Find jobs that will be delayed
+      const affectedJobs = state.jobs.filter((j) => j.id !== jobId && j.status === 'Pending');
+      document.getElementById('modal-urgent-target').textContent = `${job.token} (${job.docName})`;
+
+      const summaryEl = document.getElementById('modal-delay-summary');
+      const listEl = document.getElementById('modal-affected-list');
+      listEl.innerHTML = '';
+
+      if (affectedJobs.length === 0) {
+        summaryEl.textContent = `Marking ${job.token} as Urgent will lock priority slot #1 (+${urgentDuration} mins job time). Any newly submitted jobs will wait behind it.`;
+      } else {
+        summaryEl.textContent = `Prioritizing ${job.token} will immediately delay ${affectedJobs.length} other pending print job(s) by +${urgentDuration.toFixed(1)} mins each:`;
+        affectedJobs.forEach((aj) => {
+          const li = document.createElement('li');
+          li.textContent = `${aj.token} — ${aj.docName} (${aj.studentName}): pushed back by +${urgentDuration.toFixed(1)} mins`;
+          listEl.appendChild(li);
+        });
+      }
+
+      const modal = document.getElementById('urgent-modal');
+      modal.classList.remove('hidden');
+      modal.classList.add('flex');
+    }
+
+    function closeUrgentModal() {
+      state.pendingUrgentJobId = null;
+      const modal = document.getElementById('urgent-modal');
+      modal.classList.add('hidden');
+      modal.classList.remove('flex');
+    }
+
+    // Confirm Urgent Override (Only ONE active job can be urgent, moves to top of Pending)
+    function confirmUrgentOverride() {
+      const jobId = state.pendingUrgentJobId;
+      if (!jobId) return;
+
+      const targetJob = state.jobs.find((j) => j.id === jobId);
+      if (!targetJob) {
+        closeUrgentModal();
+        return;
+      }
+
+      const delayAdded = calcJobDurationMin(targetJob.pages, targetJob.copies, targetJob.colorMode, state.rushHour);
+
+      // Clear any previous urgent flag so only ONE job is urgent at a time
+      state.jobs.forEach((j) => {
+        if (j.id === jobId) {
+          j.urgent = true;
+          j.delayedByUrgentMin = 0;
+        } else {
+          j.urgent = false;
+          if (j.status === 'Pending') {
+            j.delayedByUrgentMin = delayAdded;
+          }
+        }
+      });
+
+      // Reorder: place targetJob right after any Printing jobs (top of Pending)
+      const withoutTarget = state.jobs.filter((j) => j.id !== jobId);
+      const printingJobs = withoutTarget.filter((j) => j.status === 'Printing');
+      const otherJobs = withoutTarget.filter((j) => j.status !== 'Printing');
+      state.jobs = [...printingJobs, targetJob, ...otherJobs];
+
+      state.selectedToken = targetJob.token;
+      state.judgeChecks.step3 = true;
+      closeUrgentModal();
+      saveState();
+      renderAll();
+
+      showToast(
+        `⚡ Urgent Priority Activated: ${targetJob.token}`,
+        `Confirmed delay impact: ${targetJob.token} moved to front of Pending queue. Other pending jobs flagged with +${delayAdded.toFixed(1)}m delay.`
+      );
+    }
+
+    function setQueueFilter(filter) {
+      state.queueFilter = filter;
+      ['ALL', 'Pending', 'Printing', 'Ready'].forEach((f) => {
+        const btn = document.getElementById('filter-' + f);
+        if (btn) {
+          btn.className = f === filter
+            ? 'px-2.5 py-1 rounded-sm bg-[#141414] text-[#efece6] font-semibold'
+            : 'px-2.5 py-1 rounded-sm bg-[#efece6] text-[#141414]/80 hover:bg-[#141414]/10 font-semibold';
+        }
+      });
+      renderAll();
+    }
+
+    function setViewMode(mode) {
+      state.viewMode = mode;
+      const studentPanel = document.getElementById('student-panel');
+      const shopPanel = document.getElementById('shop-panel');
+
+      ['split', 'student', 'shop'].forEach((m) => {
+        const tab = document.getElementById('tab-' + m);
+        if (tab) {
+          tab.className = m === mode
+            ? 'px-2.5 py-1.5 font-semibold rounded-sm bg-[#141414] text-[#efece6] transition-colors'
+            : 'px-2.5 py-1.5 font-semibold rounded-sm text-[#141414]/75 hover:text-[#141414] transition-colors';
+        }
+      });
+
+      if (mode === 'split') {
+        studentPanel.className = 'lg:col-span-5 space-y-6 block';
+        shopPanel.className = 'lg:col-span-7 space-y-5 block';
+      } else if (mode === 'student') {
+        studentPanel.className = 'lg:col-span-12 max-w-2xl mx-auto w-full space-y-6 block';
+        shopPanel.className = 'hidden';
+      } else if (mode === 'shop') {
+        studentPanel.className = 'hidden';
+        shopPanel.className = 'lg:col-span-12 space-y-5 block';
+      }
+    }
+
+    function selectStudentToken(token) {
+      state.selectedToken = token;
+      saveState();
+      renderAll();
+    }
+
+    function openResetModal() {
+      const m = document.getElementById('reset-modal');
+      m.classList.remove('hidden');
+      m.classList.add('flex');
+    }
+
+    function closeResetModal() {
+      const m = document.getElementById('reset-modal');
+      m.classList.add('hidden');
+      m.classList.remove('flex');
+    }
+
+    function confirmResetQueue() {
+      state.jobs = getInitialSampleJobs();
+      state.nextTokenNum = 104;
+      state.rushHour = false;
+      state.selectedToken = 'PQ-103';
+      state.queueFilter = 'ALL';
+      state.judgeChecks = { step1: false, step2: false, step3: false };
+      closeResetModal();
+      saveState();
+      renderAll();
+      showToast('Queue Reset Complete', 'Restored default campus print queue (PQ-101 to PQ-103) and normal speed assumptions.');
+    }
+
+    let toastTimeout = null;
+    function showToast(title, message) {
+      const container = document.getElementById('toast-container');
+      document.getElementById('toast-title').textContent = title;
+      document.getElementById('toast-message').textContent = message;
+      container.classList.remove('hidden');
+      if (toastTimeout) clearTimeout(toastTimeout);
+      toastTimeout = setTimeout(() => {
+        container.classList.add('hidden');
+      }, 5000);
+    }
+
+    function hideToast() {
+      document.getElementById('toast-container').classList.add('hidden');
+    }
+
+    // Master Render Function
+    function renderAll() {
+      const enriched = getEnrichedQueue();
+
+      // Update Rush Hour Header & Assumptions UI
+      const rushBtn = document.getElementById('rush-toggle-btn');
+      const rushDot = document.getElementById('rush-dot');
+      const rushLabel = document.getElementById('rush-label');
+      const formulaBadge = document.getElementById('formula-mode-badge');
+      const rushBox = document.getElementById('rush-formula-box');
+      const rushMultReadout = document.getElementById('rush-multiplier-readout');
+      const rushBufReadout = document.getElementById('rush-buffer-readout');
+
+      if (state.rushHour) {
+        rushBtn.className = 'inline-flex items-center gap-2 px-3 py-1.5 rounded-sm border-2 border-[#ff5a5f] bg-[#ff5a5f] text-white text-xs font-mono-code font-bold transition-all';
+        rushDot.className = 'w-2 h-2 rounded-full bg-white animate-ping';
+        rushLabel.textContent = '🔥 RUSH HOUR ON (1.5x + 1m)';
+        formulaBadge.className = 'font-mono-code text-[11px] font-bold px-2 py-0.5 rounded-sm bg-[#ff5a5f] text-white';
+        formulaBadge.textContent = 'Rush-Hour Active: 1.5x + 1.0m Buffer';
+        rushBox.className = 'bg-[#ff5a5f]/15 border border-[#ff5a5f] p-2.5 rounded-sm transition-colors';
+        rushMultReadout.textContent = 'ACTIVE (1.5x)';
+        rushBufReadout.textContent = '+1.0m per job applied';
+      } else {
+        rushBtn.className = 'inline-flex items-center gap-2 px-3 py-1.5 rounded-sm border border-[#141414]/25 bg-white text-[#141414] text-xs font-mono-code font-bold hover:border-[#141414] transition-all';
+        rushDot.className = 'w-2 h-2 rounded-full bg-emerald-600';
+        rushLabel.textContent = 'NORMAL HOURS (1.0x)';
+        formulaBadge.className = 'font-mono-code text-[11px] font-bold px-2 py-0.5 rounded-sm bg-emerald-100 text-emerald-900';
+        formulaBadge.textContent = 'Standard Load: 1.0x Speed';
+        rushBox.className = 'bg-[#efece6]/80 border border-[#141414]/15 p-2.5 rounded-sm transition-colors';
+        rushMultReadout.textContent = 'Off (1.0x)';
+        rushBufReadout.textContent = 'Click header to test twist';
+      }
+
+      // Update Judge Verification Step Badges
+      [1, 2, 3].forEach((stepNum) => {
+        const done = state.judgeChecks['step' + stepNum];
+        const statusEl = document.getElementById('judge-status-' + stepNum);
+        const badgeEl = document.getElementById('judge-badge-' + stepNum);
+        if (done) {
+          statusEl.textContent = '✓ Verified';
+          statusEl.className = 'font-mono-code text-[11px] font-bold text-emerald-700';
+          badgeEl.className = 'font-mono-code font-bold text-[11px] px-1.5 py-0.5 bg-emerald-700 text-white rounded-sm';
+        } else {
+          statusEl.textContent = 'Ready to test';
+          statusEl.className = 'font-mono-code text-[11px] font-bold text-[#141414]/50';
+          badgeEl.className = 'font-mono-code font-bold text-[11px] px-1.5 py-0.5 bg-[#141414] text-[#efece6] rounded-sm';
+        }
+      });
+
+      // Update Student Token Receipt Card
+      const currentTokenJob = enriched.find((j) => j.token === state.selectedToken) || enriched[enriched.length - 1];
+      if (currentTokenJob) {
+        state.selectedToken = currentTokenJob.token;
+        document.getElementById('receipt-token-id').textContent = currentTokenJob.token;
+        document.getElementById('receipt-doc-name').textContent = currentTokenJob.docName;
+        document.getElementById('receipt-student-name').textContent = currentTokenJob.studentName;
+        document.getElementById('receipt-specs').textContent = `${currentTokenJob.pages}p × ${currentTokenJob.copies} ${currentTokenJob.copies === 1 ? 'copy' : 'copies'} · ${currentTokenJob.colorMode === 'COLOUR' ? 'Colour' : 'B&W'}`;
+        document.getElementById('receipt-pos-cost').textContent = currentTokenJob.status === 'Ready'
+          ? `Ready at Counter · ₹${currentTokenJob.cost.toFixed(2)}`
+          : `#${currentTokenJob.queuePos} in line · ₹${currentTokenJob.cost.toFixed(2)}`;
+
+        const waitEl = document.getElementById('receipt-wait-time');
+        const clockEl = document.getElementById('receipt-pickup-clock');
+        const statusPill = document.getElementById('receipt-status-pill');
+        const urgentBadge = document.getElementById('receipt-urgent-badge');
+
+        if (currentTokenJob.urgent) {
+          urgentBadge.classList.remove('hidden');
+        } else {
+          urgentBadge.classList.add('hidden');
+        }
+
+        if (currentTokenJob.status === 'Ready') {
+          waitEl.textContent = '0.0 mins';
+          clockEl.textContent = 'Collect at Counter Now';
+          statusPill.textContent = '✓ READY FOR PICKUP';
+          statusPill.className = 'font-mono-code text-xs font-bold px-2.5 py-0.5 rounded-sm bg-emerald-200 text-emerald-950';
+        } else if (currentTokenJob.status === 'Printing') {
+          waitEl.textContent = `~${currentTokenJob.estimatedWaitMin.toFixed(1)} mins`;
+          clockEl.textContent = `ETA ${currentTokenJob.etaClock}`;
+          statusPill.textContent = '🖨️ PRINTING NOW';
+          statusPill.className = 'font-mono-code text-xs font-bold px-2.5 py-0.5 rounded-sm bg-blue-200 text-blue-950';
+        } else {
+          waitEl.textContent = `~${currentTokenJob.estimatedWaitMin.toFixed(1)} mins`;
+          clockEl.textContent = `ETA ${currentTokenJob.etaClock}`;
+          statusPill.textContent = currentTokenJob.urgent ? '⚡ URGENT PENDING' : '⏳ PENDING IN QUEUE';
+          statusPill.className = currentTokenJob.urgent
+            ? 'font-mono-code text-xs font-bold px-2.5 py-0.5 rounded-sm bg-[#ff5a5f] text-white'
+            : 'font-mono-code text-xs font-bold px-2.5 py-0.5 rounded-sm bg-amber-100 text-amber-900';
+        }
+      }
+
+      // Render Student Token Switcher Pills
+      const selectorEl = document.getElementById('student-token-selector');
+      selectorEl.innerHTML = '';
+      enriched.forEach((j) => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        const isSelected = j.token === state.selectedToken;
+        btn.className = isSelected
+          ? 'px-2.5 py-1 rounded-sm font-mono-code text-xs font-bold bg-[#141414] text-[#ff8a3d] border border-[#141414]'
+          : 'px-2.5 py-1 rounded-sm font-mono-code text-xs font-semibold bg-[#efece6] text-[#141414]/80 hover:bg-[#141414]/10 border border-[#141414]/15';
+        btn.textContent = `${j.token}${j.urgent ? ' ⚡' : ''} (${j.status})`;
+        btn.onclick = () => selectStudentToken(j.token);
+        selectorEl.appendChild(btn);
+      });
+
+      // Update Shop Summary Metrics
+      const pendingCount = enriched.filter((j) => j.status === 'Pending').length;
+      const printingCount = enriched.filter((j) => j.status === 'Printing').length;
+      const readyCount = enriched.filter((j) => j.status === 'Ready').length;
+      const maxWait = enriched.reduce((acc, j) => (j.status !== 'Ready' ? Math.max(acc, j.estimatedWaitMin) : acc), 0);
+      const anyUrgent = enriched.some((j) => j.urgent && j.status !== 'Ready');
+
+      document.getElementById('stat-pending').textContent = pendingCount;
+      document.getElementById('stat-printing').textContent = printingCount;
+      document.getElementById('stat-ready').textContent = readyCount;
+      document.getElementById('stat-total-wait').textContent = `${maxWait.toFixed(1)}m`;
+      document.getElementById('nav-queue-count').textContent = enriched.length;
+
+      const urgentInd = document.getElementById('urgent-active-indicator');
+      if (anyUrgent) {
+        urgentInd.classList.remove('hidden');
+      } else {
+        urgentInd.classList.add('hidden');
+      }
+
+      // Render Shop Queue Cards
+      const searchQuery = (document.getElementById('queue-search').value || '').trim().toLowerCase();
+      const filteredJobs = enriched.filter((j) => {
+        const matchesTab = state.queueFilter === 'ALL' || j.status === state.queueFilter;
+        const matchesSearch = !searchQuery ||
+          j.token.toLowerCase().includes(searchQuery) ||
+          j.docName.toLowerCase().includes(searchQuery) ||
+          j.studentName.toLowerCase().includes(searchQuery);
+        return matchesTab && matchesSearch;
+      });
+
+      const listContainer = document.getElementById('shop-queue-list');
+      listContainer.innerHTML = '';
+
+      if (filteredJobs.length === 0) {
+        listContainer.innerHTML = `
+          <div class="p-8 text-center border border-dashed border-[#141414]/25 rounded-sm bg-[#efece6]/50">
+            <p class="font-mono-code text-xs font-bold uppercase text-[#141414]/60">No matching print jobs in this view</p>
+            <p class="text-xs text-[#141414]/50 mt-1">Submit a new print job on the left or switch queue status filters above.</p>
+          </div>
+        `;
+      } else {
+        filteredJobs.forEach((job) => {
+          const realIndex = state.jobs.findIndex((raw) => raw.id === job.id);
+          const canMoveUp = realIndex > 0;
+          const canMoveDown = realIndex < state.jobs.length - 1;
+
+          const card = document.createElement('div');
+          card.className = `p-4 rounded-sm border transition-all ${
+            job.urgent && job.status !== 'Ready'
+              ? 'border-2 border-[#ff5a5f] bg-white urgent-pulse'
+              : job.status === 'Printing'
+              ? 'border-l-4 border-l-blue-600 border-[#141414]/20 bg-white'
+              : job.status === 'Ready'
+              ? 'border-l-4 border-l-emerald-600 border-[#141414]/15 bg-white/60 opacity-90'
+              : 'border-[#141414]/20 bg-white'
+          }`;
+
+          const statusBadgeClass =
+            job.status === 'Printing'
+              ? 'bg-blue-100 text-blue-900 border-blue-300'
+              : job.status === 'Ready'
+              ? 'bg-emerald-100 text-emerald-900 border-emerald-300'
+              : 'bg-amber-100 text-amber-900 border-amber-300';
+
+          const colorBadgeClass =
+            job.colorMode === 'COLOUR'
+              ? 'bg-purple-100 text-purple-900 border border-purple-300'
+              : 'bg-[#efece6] text-[#141414] border border-[#141414]/20';
+
+          card.innerHTML = `
+            <div class="flex flex-wrap items-start justify-between gap-2 mb-2.5">
+              <div class="flex items-center gap-2 flex-wrap">
+                <span class="font-mono-code text-sm font-bold px-2.5 py-0.5 rounded-sm bg-[#141414] text-[#ff8a3d]">
+                  ${job.token}
+                </span>
+                ${job.status !== 'Ready' ? `<span class="font-mono-code text-xs font-bold text-[#141414]/65">Queue #${job.queuePos}</span>` : ''}
+                <span class="font-mono-code text-[11px] font-bold px-2 py-0.5 rounded-sm border ${statusBadgeClass}">
+                  ${job.status.toUpperCase()}
+                </span>
+                <span class="font-mono-code text-[11px] font-semibold px-2 py-0.5 rounded-sm ${colorBadgeClass}">
+                  ${job.colorMode === 'COLOUR' ? '🌈 COLOUR' : '⬛ B&W'}
+                </span>
+                ${job.urgent && job.status !== 'Ready' ? `<span class="font-mono-code text-[11px] font-bold px-2 py-0.5 rounded-sm bg-[#ff5a5f] text-white">⚡ URGENT PRIORITY</span>` : ''}
+                ${!job.urgent && job.delayedByUrgentMin > 0 && job.status === 'Pending' ? `<span class="font-mono-code text-[10px] font-semibold px-2 py-0.5 rounded-sm bg-rose-50 text-rose-800 border border-rose-200">Delayed +${job.delayedByUrgentMin.toFixed(1)}m by Urgent</span>` : ''}
+              </div>
+
+              <div class="text-right font-mono-code">
+                <span class="text-xs font-bold text-[#141414] block">
+                  ${job.status === 'Ready' ? 'Pickup Ready' : `Wait: ~${job.estimatedWaitMin.toFixed(1)}m (ETA ${job.etaClock})`}
+                </span>
+                <span class="text-[11px] text-[#141414]/60">
+                  Job Print Time: ${job.durationMin.toFixed(1)}m · ₹${job.cost.toFixed(2)}
+                </span>
+              </div>
+            </div>
+
+            <div class="flex flex-wrap items-center justify-between gap-2 pb-3 mb-3 border-b border-[#141414]/10">
+              <div>
+                <h3 class="font-bold text-sm text-[#141414]">${job.docName}</h3>
+                <p class="text-xs text-[#141414]/70 font-mono-code">
+                  ${job.studentName} · <strong>${job.pages} pages × ${job.copies} ${job.copies === 1 ? 'copy' : 'copies'}</strong> (${job.totalSheets} total sheets)
+                </p>
+              </div>
+              <button
+                type="button"
+                onclick="selectStudentToken('${job.token}')"
+                class="text-[11px] font-mono-code underline text-[#141414]/70 hover:text-[#141414]"
+              >
+                Inspect Token Pass →
+              </button>
+            </div>
+
+            <!-- Operator Action Controls: Status Switcher + Reorder + Urgent Override -->
+            <div class="flex flex-wrap items-center justify-between gap-2">
+              <div class="flex flex-wrap items-center gap-1.5">
+                <span class="font-mono-code text-[10px] uppercase text-[#141414]/60 mr-1">Status:</span>
+                <button
+                  type="button"
+                  onclick="changeJobStatus('${job.id}', 'Pending')"
+                  class="px-2.5 py-1 rounded-sm font-mono-code text-xs font-semibold border ${job.status === 'Pending' ? 'bg-[#141414] text-white border-[#141414]' : 'bg-[#efece6] text-[#141414] border-[#141414]/20 hover:bg-[#141414]/10'}"
+                >
+                  Pending
+                </button>
+                <button
+                  type="button"
+                  onclick="changeJobStatus('${job.id}', 'Printing')"
+                  class="px-2.5 py-1 rounded-sm font-mono-code text-xs font-semibold border ${job.status === 'Printing' ? 'bg-blue-700 text-white border-blue-700' : 'bg-[#efece6] text-[#141414] border-[#141414]/20 hover:bg-blue-50'}"
+                >
+                  Printing
+                </button>
+                <button
+                  type="button"
+                  onclick="changeJobStatus('${job.id}', 'Ready')"
+                  class="px-2.5 py-1 rounded-sm font-mono-code text-xs font-semibold border ${job.status === 'Ready' ? 'bg-emerald-700 text-white border-emerald-700' : 'bg-[#efece6] text-[#141414] border-[#141414]/20 hover:bg-emerald-50'}"
+                >
+                  Ready
+                </button>
+              </div>
+
+              <div class="flex items-center gap-1.5">
+                <!-- Reorder Buttons (MVP #3) -->
+                <button
+                  type="button"
+                  onclick="moveJobOrder('${job.id}', -1)"
+                  ${!canMoveUp ? 'disabled' : ''}
+                  title="Move Up in Queue"
+                  class="px-2 py-1 rounded-sm border border-[#141414]/20 bg-[#efece6] font-mono-code text-xs font-bold ${!canMoveUp ? 'opacity-35 cursor-not-allowed' : 'hover:bg-[#141414] hover:text-white'}"
+                >
+                  ↑
+                </button>
+                <button
+                  type="button"
+                  onclick="moveJobOrder('${job.id}', 1)"
+                  ${!canMoveDown ? 'disabled' : ''}
+                  title="Move Down in Queue"
+                  class="px-2 py-1 rounded-sm border border-[#141414]/20 bg-[#efece6] font-mono-code text-xs font-bold ${!canMoveDown ? 'opacity-35 cursor-not-allowed' : 'hover:bg-[#141414] hover:text-white'}"
+                >
+                  ↓
+                </button>
+
+                <!-- Mark Urgent Button (Twist & Judge Step 03) -->
+                ${job.status !== 'Ready' ? `
+                  <button
+                    type="button"
+                    onclick="openUrgentModal('${job.id}')"
+                    class="px-2.5 py-1 rounded-sm font-mono-code text-xs font-bold border transition-colors ${
+                      job.urgent
+                        ? 'bg-[#ff5a5f] text-white border-[#ff5a5f]'
+                        : 'bg-white text-[#ff5a5f] border-[#ff5a5f] hover:bg-[#ff5a5f] hover:text-white'
+                    }"
+                  >
+                    ${job.urgent ? '⚡ Urgent Active' : '⚡ Mark Urgent'}
+                  </button>
+                ` : ''}
+              </div>
+            </div>
+          `;
+          listContainer.appendChild(card);
+        });
+      }
+
+      updateLivePreview();
+    }
+
+    window.onload = function () {
+      loadState();
+      renderAll();
+    };
+  </script>
+</body>
+</html>
